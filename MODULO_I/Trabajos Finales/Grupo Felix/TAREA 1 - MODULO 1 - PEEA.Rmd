@@ -1,0 +1,240 @@
+---
+title: "PEEA UNI Mod 1 Tarea 1"
+author: "Felix A. Garcia Aguilar"
+date: "29/4/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Paquete Foreing
+
+Foreing es un paquete que permite la carga de base de datos de diferentes fuentes, como por ejemplo importar base de datos de STATA o SPSS.
+
+Primero llamamos al paquete Foreing para poder operaralo:
+
+```{r ,warning=FALSE, message= FALSE}
+library(foreign)
+library(tidyverse)
+```
+Luego, cambiamos el directorio de trabajo donde estaran los archivos trabajados y las bases de datos:
+```{r}
+setwd("C:/Users/GAMER/Desktop/UNI - PEEA/Modulo_I/Trabajos Finales/Grupo Felix")
+
+```
+
+Luego el paquete foreing, permite subir base de datos en formatos Stata y SPSS. Para este caso se importara data desde Stata (Base de Enaho):
+
+```{r}
+df <- read.dta("sumaria-2020.dta", 
+         convert.dates = TRUE, convert.factors = TRUE,
+         missing.type = FALSE, convert.underscore = FALSE,
+         warn.missing.labels = TRUE)
+view(df)
+names(df)
+```
+
+Lo mismo aplicaria para la carga de base de datos desde un archivo spss, cambiando unicamente la palabra read.dta por read.spss.
+Los argumentos de convertir a fechas, lo hace siempre y cuando tengan el formato de fechas "yyyy-mm-dd", los factores se convierten automaticamente al distinguir entre character de multiples opciones(Si se desea convertir al factor en otra clase, se coloca "numerico", "character" u otro). Missing types(Si quisieramos identificar los NA como valor de 999, colocariamos 999), y connvert underscore son ajustes por cada columna de la base de datos, colocando NA si es missing value y eliminando los underscore.
+
+
+## Paquete Stats
+
+stats es una funcion base que contine las estadiscas funcionales basicas del algebra matricial, lineal y calculo de regresiones, predicciones, etc.
+Dentro de las funciones estadisticas creadas, se explicara las funciones para el modelamiento de modelos Logit y Probit.
+
+### De la funcion Logit
+
+En este caso, se usa la base de datos de Enaho, como ejemplo determinar la probabilidad de que una persona sea pobre o no pobre.
+Primero seleccionamos las variables en un nuevo data frame y cargamos la libreria Tidiverse:
+
+variable dependiente: 
+  * Pobreza (1 = Pobre, 0 = No Pobre)
+Variables independiente:
+  * Miembros por hogar
+  * Perceptores en el hogar
+  * Ingreso neto
+  * Ingreso percapita por hogar
+  * Gasto monetario total
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+
+df_pobreza <- df %>% select(pobreza, mieperho, percepho, inghog2d, gashog1d) %>% mutate(pobreza = ifelse(pobreza=="no pobre",0,1))
+head(df_pobreza)
+
+view(df_pobreza)
+names(df_pobreza)
+```
+
+Luego de ello realizamos un analisis descriptivo de las variables:
+
+```{r}
+df_pobreza %>% mutate(pobreza = as.factor(pobreza)) %>% ggplot(aes(mieperho, color = pobreza)) + geom_boxplot()
+```
+
+
+```{r}
+df_pobreza %>% mutate(pobreza = as.factor(pobreza)) %>% ggplot(aes(inghog2d, color = pobreza, fill= pobreza)) + geom_histogram()
+```
+
+```{r}
+df_pobreza %>% mutate(pobreza = as.factor(pobreza)) %>% ggplot(aes(inghog2d,gashog1d, color = pobreza, fill= pobreza)) + geom_point() + facet_grid(.~pobreza)
+```
+inmediatamente, pasamos a crear el modelo lineal como base de comparacion, teniendo en cuenta que "~." implica que la variable pobreza esta en funcion de todas las variables de la base de datos actual:
+```{r}
+
+fit_lm <- lm(pobreza ~. , data = df_pobreza)
+summary(fit_lm)
+
+
+```
+
+Luego realizamos las predicciones del modelo, donde la prediccion sera de "response" debido a que la variable es una variable de respuesta binaria.
+
+```{r}
+pred_lm <- predict(fit_lm, type = "response")
+summary(pred_lm)
+```
+
+Se ve que el minimo es negativo, lo cual no es aceptable y el maximo es mayor a 1 lo que implica que los valores no se ajustan adecuadamente para esta base de datos.
+
+Por ello se aplica el modelo Probit:
+
+```{r}
+fit_probit <- glm(pobreza ~. , data = df_pobreza, 
+                  family = binomial(link = "probit"))
+summary(fit_probit)
+```
+Con ello realizamos las predicciones del modelo Probit:
+
+```{r}
+pred_probit <- predict(fit_probit, type = "response")
+summary(pred_probit)
+```
+Luego similarmente, desarrollamos el modelo logit:
+```{r}
+fit_logit <- glm(pobreza ~. , data = df_pobreza, 
+                  family = binomial(link = "logit"))
+summary(fit_logit)
+```
+Nuevamente realizamos las predicciones del modelo, pero esta vez bajo la forma Logit.
+```{r}
+pred_logit <- predict(fit_logit, type = "response")
+summary(pred_logit)
+```
+Sus interpretaciones en lineas generales estan basadas en el signo, donde para el modelo Logit, mayores mimbros del hogar aumenta la probabilidad de ser pobre, mayores miembros de perceptores disminuye la probabilidad de ser pobre, mayores niveles de ingreso disminuye la probabilidad de ser pobre, y mayores niveles de gastos tambien disminuye la probabilidad de ser pobre, pero siendo menor al impacto de los ingresos.
+
+
+## Paquete ROCR
+
+
+ROCR ha existido durante casi 14 años y ha sido un caballo de batalla sólido como una roca para dibujar curvas ROC. Esto no solo es tranquilizadoramente transparente, sino que muestra la flexibilidad para calcular casi todas las medidas de rendimiento para un clasificador binario ingresando el parámetro apropiado.
+
+Su uso se basa en determinar los valores de la curva ROC para los modelos probabilisticos, siendo el primer paso el de comparar los resultados predichos con los reales:
+
+```{r}
+fit_logit <- glm(pobreza ~. , data = df_pobreza, 
+                  family = binomial(link = "logit"))
+summary(fit_logit)
+
+library(ROCR)
+
+pred_logit <- predict(fit_logit, df_pobreza, type = "response")
+
+hist(pred_logit)
+```
+Sin emabrgo debemos conocer el umbral de probabilidad para determinar si es pobre o no. COn el paquete ROCR esto se puede calcular de manera simple y entendible. Lo primero es calcular los valores de la prediccion bajo el formato ROC con la funcion "prediction", para luego evaluar el umbral en funcion al accuracy del modelo que a la vez arrogara los cortes o umbrales implicitos:
+
+```{r}
+pred_logit <- prediction(pred_logit, df_pobreza$pobreza)
+eval <- performance(pred_logit, "acc")
+plot(eval)
+
+
+```
+Luego se puede identificar el maximo umbral que brinda el maximo accuracy del modelo logistico:
+
+```{r}
+
+ind_max <-which.max(slot(eval, "y.values")[[1]])
+acc_max <- slot(eval, "y.values")[[1]][ind_max]
+cut_max <- slot(eval, "x.values")[[1]][ind_max]
+
+paste("El maximo accuracy del modelo es",round(acc_max,3), "con un umbral de corte del", round(cut_max,3), "de probabilidad de ser pobre")
+```
+
+Viendo si clasificamos correctamente el modelo:
+Donde: 
+  * "tpr" es True Positive Rate
+  * "fpr" es False Positve Rate
+
+```{r}
+roc_logit <-  performance(pred_logit,"tpr", "fpr")
+plot(roc_logit, colorize = TRUE, main = "ROC Curve", ylab = "Sensitivity", 
+     xlab = "1- Specificity")
+
+```
+
+Finalmente el paquete ROCR tambien puede hallar el area bajo la curva, AUC por sus siglas en ingles del modelo logit que se planteo con la encuesta ENAHO 2020.
+El indicador AUC nos indica la capacidad que tiene el modelo de comportarse como un todo, mientras mas mayor sea el AUC mucho mejor, lo que asegura que el modelo tiene mas true positive que false negative.
+
+```{r}
+auc_logit <- performance(pred_logit, "auc")
+auc_logit <- unlist(slot(auc_logit, "y.values"))
+
+paste("The final AUC del modelo es", round(auc_logit, 3))
+```
+
+## Paquete MLMetrics
+
+Una colección de métricas de evaluación, incluyendo pérdida, puntuación y funciones de utilidad, que miden el rendimiento de regresión y clasificación.
+
+Este paquete usualmente es usado para comparar medidas de rendimiento por cada modelos que se presenta con las mediciones del MSE, MAE, Accuracy, Gini, AUC, Confusion Matrix, 
+
+```{r, warning= FALSE, }
+library(MLmetrics)
+pred_logit <- predict(fit_logit, df_pobreza, type = "response") 
+
+MAE_logit <- MAE(pred_logit, df_pobreza$pobreza)
+MAE_probit <- MAE(pred_probit, df_pobreza$pobreza)
+MAE_logit
+MAE_probit
+
+```
+
+Por el lado del MAE, el modelo Logit es mejor que el probit.
+
+```{r}
+MSE_logit <- MSE(pred_logit, df_pobreza$pobreza)
+MSE_probit <- MSE(pred_probit, df_pobreza$pobreza)
+MSE_logit
+MSE_probit
+```
+
+Por el lado del MSE, el logit sigue siendo mejor que el Probit.
+
+El paquete es usado tambien para la prediccion de modelos de Machine Learning, bajo un modelamiento partido en set de entrenamiento y sets de testeo.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
